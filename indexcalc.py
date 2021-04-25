@@ -16,44 +16,56 @@ def mu_per_gy(data):
     MU_Gy = np.sum(MU_beam) * 2 / np.sum(d_beam) 
     return MU_Gy
 
+def getBeamLimitingDevice(name:str, node):
+    lista = [x for x in node.BeamLimitingDeviceSequence if x.RTBeamLimitingDeviceType == name]
+    if len(lista > 1):
+        raise ValueError(f"Se encontró más de un colimador {name} en el nodo")
+    elif len(lista) == 0:
+        raise ValueError(f"Colimador {name} no encontrado")
+    return lista[0]
 
 def sas(data, umbral):
-    umbral=float(input('Introducir umbral en mm'))#umbral por debajo del cual contamos un par de láminas como "poco abiertas".EN MILIMETROS!!!!
+    """
+    Calcula el índice SAS de complejidad
 
-    acumulador_tot=0 #esto me sirve para contar el numero de pares de laminas abiertas en total (contando todos los haces)
-    numero_cp_tot=0 #esto lo mismo pero con el numero de cp
+    Parameters
+    ==========
+    * umbral:float
+        El umbral por debajo del cual consideramos que un par de láminas están poco abiertas (en mm)
+    """
+    umbral=float(input('Introducir umbral en mm'))
+
+    acumulador_tot = 0 #esto me sirve para contar el numero de pares de laminas abiertas en total (contando todos los haces)
+    numero_cp_tot = 0 #esto lo mismo pero con el numero de cp
 
     for beam in data.BeamSequence:
-    
         for device in beam.BeamLimitingDeviceSequence:
             if device.RTBeamLimitingDeviceType=='MLCX':
-                pares_laminas=device.NumberOfLeafJawPairs #cuento el número de pares de láminas 
-        numero_cp=beam.NumberOfControlPoints #también el número de puntos de control (puede no ser el mismo para cada beam)
+                pares_laminas = device.NumberOfLeafJawPairs #cuento el número de pares de láminas 
+
+        numero_cp = beam.NumberOfControlPoints #también el número de puntos de control (puede no ser el mismo para cada beam)
         print(beam.BeamName)
         print('Número de puntos de control: ',numero_cp)
         print('Número de pares de láminas:', pares_laminas)
     
-        acumulador=0 #aqui contaré el numero de pares de laminas abiertas para cada haz singularmente
+        acumulador = 0 #aqui contaré el numero de pares de laminas abiertas para cada haz singularmente
         for cp in beam.ControlPointSequence: #calculamos para cada punto de control (apertura) en cada beam
-            
             for colimador in cp.BeamLimitingDevicePositionSequence: 
-                
-                if colimador.RTBeamLimitingDeviceType=='MLCX': 
-                    posiciones=colimador.LeafJawPositions #asigno al vector posiciones las posiciones de todas las láminas
+                if colimador.RTBeamLimitingDeviceType == 'MLCX': 
+                    posiciones = colimador.LeafJawPositions #asigno al vector posiciones las posiciones de todas las láminas
                     for i in range(pares_laminas):
-                        d=posiciones[i+pares_laminas]-posiciones[i] #calculo la distancia a la que se encuentra cada par de láminas
+                        d = posiciones[i + pares_laminas] - posiciones[i] #calculo la distancia a la que se encuentra cada par de láminas
                         if d > 0 and d < umbral: #si d=0 están cerradas y no me interesan para el cálculo
-                            acumulador=acumulador+1 #numero de pares de láminas abierta más que el umbral
+                            acumulador = acumulador + 1 #numero de pares de láminas abierta más que el umbral
                     
-        acumulador_tot=acumulador_tot+acumulador #sumo al acumulador total las correspondientes a cada beam
-        numero_cp_tot=numero_cp_tot+numero_cp #idem con los puntos de control
-        
-        
-        SAS=acumulador/pares_laminas/numero_cp*100 #calculo el SAS de cada beam como la proporcion de pares abiertas entre las totales(pares de laminas en el MLC * numero de puntos de control)
+        acumulador_tot = acumulador_tot + acumulador #sumo al acumulador total las correspondientes a cada beam
+        numero_cp_tot = numero_cp_tot + numero_cp #idem con los puntos de control
+              
+        SAS = acumulador / pares_laminas / numero_cp * 100 #calculo el SAS de cada beam como la proporcion de pares abiertas entre las totales(pares de laminas en el MLC * numero de puntos de control)
         print('SAS(',umbral,'mm) =',SAS,'%')
         
 
-    SAS_tot=acumulador_tot/pares_laminas/numero_cp_tot*100
+    SAS_tot = 100 * acumulador_tot / (pares_laminas * numero_cp_tot)
     print('PLAN COMPLETO')
     print('SAS(',umbral,'mm) =',SAS_tot,'%')
 
