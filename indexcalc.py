@@ -1,22 +1,21 @@
 import numpy as np
 
 def mu_per_gy(data):
-    MU_beam=[] #creo un array vacío donde iré metiendo las UM de cada haz del tratamiento
-    d_beam=[] #creo un array vacío donde iré metiendo la dosis de cada haz del tratamiento
+    """
+    Devuelve el índice de complejidad para el plan especificado en data
+    """
+    MU_beam=[] # UM de cada haz del tratamiento
+    d_beam=[]  # Dosis de cada haz del tratamiento
 
     for fraction in data.FractionGroupSequence:
-        n_fracciones=fraction.NumberOfFractionsPlanned #leo el número de fracciones que se van a dar en el tratamiento
-        print('Número de fracciones del tratamiento:',n_fracciones)
         for beam in fraction.ReferencedBeamSequence:
-            
             MU_beam.append(beam.BeamMeterset)
             d_beam.append(beam.BeamDose)
 
+    #esto es justamente el ínidce de complejidad: UM totales del plan x 2Gy/dosis por fracción en Gy
+    MU_Gy = np.sum(MU_beam) * 2 / np.sum(d_beam) 
+    return MU_Gy
 
-    MU_Gy=sum(MU_beam)*2/sum(d_beam) #esto es justamente el ínidce de complejidad: UM totales del plan x 2Gy/dosis por fracción en Gy
-            
-
-    print('El índice de complejidad MU/Gy para el tratamiento completo introducido es:',MU_Gy)
 
 def sas(data, umbral):
     umbral=float(input('Introducir umbral en mm'))#umbral por debajo del cual contamos un par de láminas como "poco abiertas".EN MILIMETROS!!!!
