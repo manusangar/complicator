@@ -1,3 +1,6 @@
+
+from typing import NamedTuple
+
 import numpy as np
 
 def mu_per_gy(data):
@@ -18,7 +21,15 @@ def mu_per_gy(data):
 
 def getBeamLimitingDevice(name:str, node):
     lista = [x for x in node.BeamLimitingDeviceSequence if x.RTBeamLimitingDeviceType == name]
-    if len(lista > 1):
+    if len(lista) > 1:
+        raise ValueError(f"Se encontró más de un colimador {name} en el nodo")
+    elif len(lista) == 0:
+        raise ValueError(f"Colimador {name} no encontrado")
+    return lista[0]
+
+def getBeamLimitingDevicePosition(name:str, node):
+    lista = [x for x in node.BeamLimitingDevicePositionSequence if x.RTBeamLimitingDeviceType == name]
+    if len(lista) > 1:
         raise ValueError(f"Se encontró más de un colimador {name} en el nodo")
     elif len(lista) == 0:
         raise ValueError(f"Colimador {name} no encontrado")
@@ -28,46 +39,46 @@ def sas(data, umbral):
     """
     Calcula el índice SAS de complejidad
 
+    El SAS se define como la proporcion de pares de láminas abiertas menos
+    de un cierto umbral con respecto al número de láminas total
+
     Parameters
     ==========
     * umbral:float
         El umbral por debajo del cual consideramos que un par de láminas están poco abiertas (en mm)
     """
-    umbral=float(input('Introducir umbral en mm'))
-
-    acumulador_tot = 0 #esto me sirve para contar el numero de pares de laminas abiertas en total (contando todos los haces)
+    total_open_leaves = 0 #esto me sirve para contar el numero de pares de laminas abiertas en total (contando todos los haces)
     numero_cp_tot = 0 #esto lo mismo pero con el numero de cp
 
     for beam in data.BeamSequence:
-        for device in beam.BeamLimitingDeviceSequence:
-            if device.RTBeamLimitingDeviceType=='MLCX':
-                pares_laminas = device.NumberOfLeafJawPairs #cuento el número de pares de láminas 
+        mlc_desc = getBeamLimitingDevice("MLCX", beam)
+        pares_laminas = mlc_desc.NumberOfLeafJawPairs
 
         numero_cp = beam.NumberOfControlPoints #también el número de puntos de control (puede no ser el mismo para cada beam)
-        print(beam.BeamName)
-        print('Número de puntos de control: ',numero_cp)
-        print('Número de pares de láminas:', pares_laminas)
-    
-        acumulador = 0 #aqui contaré el numero de pares de laminas abiertas para cada haz singularmente
+        beam_open_leaves = 0 
         for cp in beam.ControlPointSequence: #calculamos para cada punto de control (apertura) en cada beam
-            for colimador in cp.BeamLimitingDevicePositionSequence: 
-                if colimador.RTBeamLimitingDeviceType == 'MLCX': 
-                    posiciones = colimador.LeafJawPositions #asigno al vector posiciones las posiciones de todas las láminas
-                    for i in range(pares_laminas):
-                        d = posiciones[i + pares_laminas] - posiciones[i] #calculo la distancia a la que se encuentra cada par de láminas
-                        if d > 0 and d < umbral: #si d=0 están cerradas y no me interesan para el cálculo
-                            acumulador = acumulador + 1 #numero de pares de láminas abierta más que el umbral
-                    
-        acumulador_tot = acumulador_tot + acumulador #sumo al acumulador total las correspondientes a cada beam
-        numero_cp_tot = numero_cp_tot + numero_cp #idem con los puntos de control
-              
-        SAS = acumulador / pares_laminas / numero_cp * 100 #calculo el SAS de cada beam como la proporcion de pares abiertas entre las totales(pares de laminas en el MLC * numero de puntos de control)
-        print('SAS(',umbral,'mm) =',SAS,'%')
-        
+            mlc_pos = getBeamLimitingDevicePosition("MLCX", cp)
+            posiciones = np.array(mlc_pos.LeafJawPositions)
+            d = posiciones[pares_laminas:] - posiciones[:pares_laminas]
+            cp_open_leaves = np.count_nonzero(np.logical_and(d > 0, d < umbral))
+            beam_open_leaves += cp_open_leaves
+            #print(f"DEBUG SAS cp: {beam.BeamNumber}, {cp.ControlPointIndex}, {cp_open_leaves}")                    
+        total_open_leaves += beam_open_leaves 
+        numero_cp_tot += numero_cp 
 
-    SAS_tot = 100 * acumulador_tot / (pares_laminas * numero_cp_tot)
-    print('PLAN COMPLETO')
-    print('SAS(',umbral,'mm) =',SAS_tot,'%')
+        #SAS = beam_open_leaves / (pares_laminas * numero_cp) * 100 
+        #print(f"DEBUG SAS beam: {beam.BeamNumber}, {SAS:.2f}%")
+
+    SAS_tot = 100 * total_open_leaves / (pares_laminas * numero_cp_tot)
+    return SAS_tot
+
+
+def get_mlc_geometry(nodo):
+    mlc = getBeamLimitingDevice("MLCX", nodo)
+    boundaries = np.array(mlc.LeafPositionBoundaries)
+    widths = boundaries[1:] - boundaries[:-1]
+    return mlc.NumberOfLeafJawPairs, boundaries, widths
+
 
 def pi(data):
     MU_todos_beams=[] #vector que almacena en el elemento i-ésimo las MU del beam i+1
@@ -81,18 +92,12 @@ def pi(data):
     PI_i=[] #esto es seria cada elemento del numerador del plan irregularity
     beam_number=0
     for beam in data.BeamSequence:
-        beam_number=beam_number+1 #asigno un número de beam a cada uno.
-        MU_beam=MU_todos_beams[beam_number-1] #digo cuantas MU tiene el beam con el que estamos trabajando
+        beam_number = beam_number + 1 #asigno un número de beam a cada uno.
+        MU_beam = MU_todos_beams[beam_number - 1] #digo cuantas MU tiene el beam con el que estamos trabajando
         
         FinalCumulativeMetersetWeight=beam.FinalCumulativeMetersetWeight #creo que siempre es 1, pero por si acaso
     
-        for device in beam.BeamLimitingDeviceSequence:
-            if device.RTBeamLimitingDeviceType=='MLCX':
-                pares_laminas=device.NumberOfLeafJawPairs #cuento el número de pares de láminas 
-                fronteras_MLC=device.LeafPositionBoundaries #las posiciones de los extremos de cada lámina.pares_laminas + 1 valores
-        anchura=[]
-        for i in range(pares_laminas):
-            anchura.append(abs(fronteras_MLC[i]-fronteras_MLC[i+1])) #me calculo la anchura de cada lámina
+        pares_laminas, fronteras_MLC, anchura = get_mlc_geometry(beam)
             
         numero_cp=int(beam.NumberOfControlPoints) #también el número de puntos de control (puede no ser el mismo para cada beam)
         
@@ -105,15 +110,13 @@ def pi(data):
         for cp in beam.ControlPointSequence: #calculamos para cada punto de control (apertura) en cada beam
             MU_cp_cumulative.append(cp.CumulativeMetersetWeight*MU_beam/FinalCumulativeMetersetWeight)#cumulative meterset ya en UM para cada cp
             
-            for colimador in cp.BeamLimitingDevicePositionSequence: 
-                if colimador.RTBeamLimitingDeviceType=='MLCX': 
-                    posiciones_izq=colimador.LeafJawPositions[:pares_laminas] #array con las posiciones de la parte izq del MLC
-                    posiciones_der=colimador.LeafJawPositions[pares_laminas:] #array con las posiciones de la parte der del MLC
+            mlc_cp = getBeamLimitingDevice("MLCX", cp)
+            mlc_cp_pos = np.array(mlc_cp.LeafJawPositions)
+            posiciones_izq = mlc_cp_pos[:pares_laminas] #array con las posiciones de la parte izq del MLC
+            posiciones_der = mlc_cp_ps[pares_laminas:] #array con las posiciones de la parte der del MLC
             
             # para el calculo del permitro de cada abertura hago dos pasos: primero asigno a cada par de laminas un índice m que es igual a 0
-            # si ellas no pertenecen a ningún agujero. Por el contrario les asigno el número del agujero al que pertenecen.
-            
-            
+            # si ellas no pertenecen a ningún agujero. Por el contrario les asigno el número del agujero al que pertenecen.          
             
             n_hole=0 # numero de agujeros en cada cp
             m=np.zeros(pares_laminas) # el elemento i-ésimo de este vector nos da m_i, que vale 0 si el par de láminas i-ésimo está cerrado ó vale el número del agujero al que dicho par de láminas pertence
