@@ -11,3 +11,6 @@ print(f"MU/Gy = {mu_per_gy:.2f}")
 
 sas = indexcalc.sas(data, 2)
 print(f"SAS(2mm) = {sas:.2f}%")
+
+plan_pi = indexcalc.pi(data)
+print(f"PI = {plan_pi:.2f}")

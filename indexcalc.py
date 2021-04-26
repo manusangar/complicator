@@ -5,7 +5,7 @@ import numpy as np
 
 def mu_per_gy(data):
     """
-    Devuelve el índice de complejidad para el plan especificado en data
+    Devuelve el índice de complejidad MU/Gy para el plan especificado en data
     """
     MU_beam=[] # UM de cada haz del tratamiento
     d_beam=[]  # Dosis de cada haz del tratamiento
@@ -80,20 +80,25 @@ def get_mlc_geometry(nodo):
     return mlc.NumberOfLeafJawPairs, boundaries, widths
 
 
-def pi(data):
-    MU_todos_beams=[] #vector que almacena en el elemento i-ésimo las MU del beam i+1
-
+def get_beam_mu(data):
+    """
+    Devuelve un diccionario con el número de MU de cada haz
+    """
+    beam_mu = {}
     for fraction in data.FractionGroupSequence:
         for reference in fraction.ReferencedBeamSequence:
-            MU_todos_beams.append(reference.BeamMeterset) #asigno a cada elemento las MU de cada beam por orden
+            beam_mu[reference.ReferencedBeamNumber] = reference.BeamMeterset
+    return beam_mu
 
+def pi(data):
+    beam_mu = get_beam_mu(data)
             
     BI_beam=[] #aqui almacenaré el beam irregularity de cada beam
     PI_i=[] #esto es seria cada elemento del numerador del plan irregularity
     beam_number=0
     for beam in data.BeamSequence:
         beam_number = beam_number + 1 #asigno un número de beam a cada uno.
-        MU_beam = MU_todos_beams[beam_number - 1] #digo cuantas MU tiene el beam con el que estamos trabajando
+        MU_beam = beam_mu[beam.BeamNumber] #digo cuantas MU tiene el beam con el que estamos trabajando
         
         FinalCumulativeMetersetWeight=beam.FinalCumulativeMetersetWeight #creo que siempre es 1, pero por si acaso
     
@@ -110,10 +115,10 @@ def pi(data):
         for cp in beam.ControlPointSequence: #calculamos para cada punto de control (apertura) en cada beam
             MU_cp_cumulative.append(cp.CumulativeMetersetWeight*MU_beam/FinalCumulativeMetersetWeight)#cumulative meterset ya en UM para cada cp
             
-            mlc_cp = getBeamLimitingDevice("MLCX", cp)
+            mlc_cp = getBeamLimitingDevicePosition("MLCX", cp)
             mlc_cp_pos = np.array(mlc_cp.LeafJawPositions)
             posiciones_izq = mlc_cp_pos[:pares_laminas] #array con las posiciones de la parte izq del MLC
-            posiciones_der = mlc_cp_ps[pares_laminas:] #array con las posiciones de la parte der del MLC
+            posiciones_der = mlc_cp_pos[pares_laminas:] #array con las posiciones de la parte der del MLC
             
             # para el calculo del permitro de cada abertura hago dos pasos: primero asigno a cada par de laminas un índice m que es igual a 0
             # si ellas no pertenecen a ningún agujero. Por el contrario les asigno el número del agujero al que pertenecen.          
@@ -207,7 +212,8 @@ def pi(data):
         
         
         PI_i.append(BI*MU_beam)
-    PI=sum(PI_i)/sum(MU_todos_beams)
+    PI=sum(PI_i)/sum(beam_mu.values())
 
     print('Plan Completo')
     print('Plan Irregularity:',PI)
+    return PI
