@@ -90,100 +90,98 @@ def get_beam_mu(data):
             beam_mu[reference.ReferencedBeamNumber] = reference.BeamMeterset
     return beam_mu
 
+def get_perimetro(posiciones_izq, posiciones_der, anchura):
+    # para el calculo del permitro de cada abertura hago dos pasos: primero asigno a cada par de laminas un índice m que es igual a 0
+    # si ellas no pertenecen a ningún agujero. Por el contrario les asigno el número del agujero al que pertenecen.  
+    pares_laminas = len(posiciones_izq)
+    n_hole=0 # numero de agujeros en cada cp
+    m=np.zeros(pares_laminas) # el elemento i-ésimo de este vector nos da m_i, que vale 0 si el par de láminas i-ésimo está cerrado ó vale el número del agujero al que dicho par de láminas pertence
+
+    if posiciones_izq[0]==posiciones_der[0]: #primera lámina cerrada (hay que tomar el primer y último par de láminas por separado)
+        m[0]=0
+    else: #primera lámina abierta
+        n_hole=1
+        m[0]=n_hole
+
+    for i in range(1,pares_laminas): #aqui corro desde el segundo par hasta el ultimo
+
+        if posiciones_izq[i]==posiciones_der[i]: #lamina i-ésima cerrada
+            m[i]=0
+        elif posiciones_izq[i]!=posiciones_der[i] and posiciones_izq[i-1]==posiciones_der[i-1]: #lamina i-ésima abierta y la anterior cerrada (empieza un nuevo agujero)
+            n_hole=n_hole+1
+            m[i]=n_hole
+        elif posiciones_izq[i]!=posiciones_der[i] and posiciones_izq[i]>posiciones_der[i-1]: # la lamina actual (aun estando abierta) cierra el anterior agujero
+            n_hole=n_hole+1
+            m[i]=n_hole
+        elif posiciones_izq[i]!=posiciones_der[i] and posiciones_der[i]<posiciones_izq[i-1]: #mismo caso que el anterior 
+            n_hole=n_hole+1
+            m[i]=n_hole
+        else: #seguimos en el mismo agujero
+            m[i]=n_hole
+
+    #Llegados a este punto ya tenemos, para cada cp, el índice de cada par de láminas.
+    #vamos con el perimetro
+    
+    perimetro_cp=0 #perimetro total del cp (suma de los perimetros de cada agujero)
+    perimetro_m=np.zeros(n_hole) #array donde cada elemento es el periemtro de cada uno de los agujeros en el cp
+    
+    if m[0]==0: #perimera lamina cerrada (m=0)
+        pass
+    elif m[1]!=m[0]: #la primera lamina es distinta que la segunda. Empieza y acaba un aguejro
+        perimetro_m[0]=perimetro_m[0]+2*(posiciones_der[0]-posiciones_izq[0])+2*(anchura[0])
+
+    else: #la primera es igual a la segunda. Empieza un agujero y sigue
+        perimetro_m[0]=perimetro_m[0]+(posiciones_der[0]-posiciones_izq[0])+2*(anchura[0])
+
+    for i in range(1,pares_laminas-1): #calculamos desde la segunda a la penultima
+
+        if m[i]==0: #primera lamina cerrada
+            pass
+        elif m[i-1]!=m[i] and m[i+1]==m[i]: #empieza un nuevo agujero y sigue
+            perimetro_m[int(m[i]-1)]=perimetro_m[int(m[i]-1)]+(posiciones_der[i]-posiciones_izq[i])+2*(anchura[i])
+        elif m[i-1]!=m[i] and m[i+1]!=m[i]: #empieza un nuevo agujero y termina ahí
+            perimetro_m[int(m[i]-1)]=perimetro_m[int(m[i]-1)]+2*(posiciones_der[i]-posiciones_izq[i])+2*(anchura[i])
+        elif m[i+1]==m[i]: #no empieza agujera (seguimos en el mismo que el anterior) y tampoco acaba
+            perimetro_m[int(m[i]-1)]=perimetro_m[int(m[i]-1)]+abs(posiciones_izq[i]-posiciones_izq[i-1])+abs(posiciones_der[i]-posiciones_der[i-1])+2*(anchura[i])
+        else: #no empieza un agujero, pero si termina ahí
+            perimetro_m[int(m[i]-1)]=perimetro_m[int(m[i]-1)]+abs(posiciones_izq[i]-posiciones_izq[i-1])+abs(posiciones_der[i]-posiciones_der[i-1])+(posiciones_der[i]-posiciones_izq[i])+2*(anchura[i])
+    
+    # hago lo correspondiente para el último par de láminas
+    if m[-1]==0: #ultima lamina cerrada
+        perimetro_m[-1]=perimetro_m[-1]+(posiciones_der[-2]-posiciones_izq[-2])
+    else: #ultima lamina abierta
+        perimetro_m[-1]=perimetro_m[-1]+abs(posiciones_izq[-2]-posiciones_izq[-1])+abs(posiciones_der[-2]-posiciones_der[-1])+(posiciones_der[-1]-posiciones_izq[-1])+2*(anchura[-1])
+
+    perimetro_cp=sum(perimetro_m) #perimetro de cada cp del beam en cuestion
+    return perimetro_cp
+
+
 def pi(data):
     beam_mu = get_beam_mu(data)
             
-    BI_beam=[] #aqui almacenaré el beam irregularity de cada beam
-    PI_i=[] #esto es seria cada elemento del numerador del plan irregularity
-    beam_number=0
+    PI_i = [] #esto es seria cada elemento del numerador del plan irregularity
+
     for beam in data.BeamSequence:
-        beam_number = beam_number + 1 #asigno un número de beam a cada uno.
         MU_beam = beam_mu[beam.BeamNumber] #digo cuantas MU tiene el beam con el que estamos trabajando
-        
-        FinalCumulativeMetersetWeight=beam.FinalCumulativeMetersetWeight #creo que siempre es 1, pero por si acaso
-    
         pares_laminas, fronteras_MLC, anchura = get_mlc_geometry(beam)
             
         numero_cp=int(beam.NumberOfControlPoints) #también el número de puntos de control (puede no ser el mismo para cada beam)
         
-        print(beam.BeamName,beam_number,MU_beam) #solo comprobacion para ver que todo marcha bien
+        print(beam.BeamName, beam.BeamNumber ,beam_mu[beam.BeamNumber]) #solo comprobacion para ver que todo marcha bien
         
         
         MU_cp_cumulative=[] #aquí iré metiendo el meterset cumulative para cada cp
         AI_cp=[] #aperture irregularity de cada cp
         
         for cp in beam.ControlPointSequence: #calculamos para cada punto de control (apertura) en cada beam
-            MU_cp_cumulative.append(cp.CumulativeMetersetWeight*MU_beam/FinalCumulativeMetersetWeight)#cumulative meterset ya en UM para cada cp
+            MU_cp_cumulative.append(cp.CumulativeMetersetWeight*MU_beam/beam.FinalCumulativeMetersetWeight)#cumulative meterset ya en UM para cada cp
             
             mlc_cp = getBeamLimitingDevicePosition("MLCX", cp)
             mlc_cp_pos = np.array(mlc_cp.LeafJawPositions)
             posiciones_izq = mlc_cp_pos[:pares_laminas] #array con las posiciones de la parte izq del MLC
             posiciones_der = mlc_cp_pos[pares_laminas:] #array con las posiciones de la parte der del MLC
             
-            # para el calculo del permitro de cada abertura hago dos pasos: primero asigno a cada par de laminas un índice m que es igual a 0
-            # si ellas no pertenecen a ningún agujero. Por el contrario les asigno el número del agujero al que pertenecen.          
-            
-            n_hole=0 # numero de agujeros en cada cp
-            m=np.zeros(pares_laminas) # el elemento i-ésimo de este vector nos da m_i, que vale 0 si el par de láminas i-ésimo está cerrado ó vale el número del agujero al que dicho par de láminas pertence
-
-            if posiciones_izq[0]==posiciones_der[0]: #primera lámina cerrada (hay que tomar el primer y último par de láminas por separado)
-                m[0]=0
-            else: #primera lámina abierta
-                n_hole=1
-                m[0]=n_hole
-
-            for i in range(1,pares_laminas): #aqui corro desde el segundo par hasta el ultimo
-
-                if posiciones_izq[i]==posiciones_der[i]: #lamina i-ésima cerrada
-                    m[i]=0
-                elif posiciones_izq[i]!=posiciones_der[i] and posiciones_izq[i-1]==posiciones_der[i-1]: #lamina i-ésima abierta y la anterior cerrada (empieza un nuevo agujero)
-                    n_hole=n_hole+1
-                    m[i]=n_hole
-                elif posiciones_izq[i]!=posiciones_der[i] and posiciones_izq[i]>posiciones_der[i-1]: # la lamina actual (aun estando abierta) cierra el anterior agujero
-                    n_hole=n_hole+1
-                    m[i]=n_hole
-                elif posiciones_izq[i]!=posiciones_der[i] and posiciones_der[i]<posiciones_izq[i-1]: #mismo caso que el anterior 
-                    n_hole=n_hole+1
-                    m[i]=n_hole
-                else: #seguimos en el mismo agujero
-                    m[i]=n_hole
-
-            #Llegados a este punto ya tenemos, para cada cp, el índice de cada par de láminas.
-            #vamos con el perimetro
-            
-            perimetro_cp=0 #perimetro total del cp (suma de los perimetros de cada agujero)
-            perimetro_m=np.zeros(n_hole) #array donde cada elemento es el periemtro de cada uno de los agujeros en el cp
-            
-            if m[0]==0: #perimera lamina cerrada (m=0)
-                pass
-            elif m[1]!=m[0]: #la primera lamina es distinta que la segunda. Empieza y acaba un aguejro
-                perimetro_m[0]=perimetro_m[0]+2*(posiciones_der[0]-posiciones_izq[0])+2*(anchura[0])
-
-            else: #la primera es igual a la segunda. Empieza un agujero y sigue
-                perimetro_m[0]=perimetro_m[0]+(posiciones_der[0]-posiciones_izq[0])+2*(anchura[0])
-
-            for i in range(1,pares_laminas-1): #calculamos desde la segunda a la penultima
-
-                if m[i]==0: #primera lamina cerrada
-                    pass
-                elif m[i-1]!=m[i] and m[i+1]==m[i]: #empieza un nuevo agujero y sigue
-                    perimetro_m[int(m[i]-1)]=perimetro_m[int(m[i]-1)]+(posiciones_der[i]-posiciones_izq[i])+2*(anchura[i])
-                elif m[i-1]!=m[i] and m[i+1]!=m[i]: #empieza un nuevo agujero y termina ahí
-                    perimetro_m[int(m[i]-1)]=perimetro_m[int(m[i]-1)]+2*(posiciones_der[i]-posiciones_izq[i])+2*(anchura[i])
-                elif m[i+1]==m[i]: #no empieza agujera (seguimos en el mismo que el anterior) y tampoco acaba
-                    perimetro_m[int(m[i]-1)]=perimetro_m[int(m[i]-1)]+abs(posiciones_izq[i]-posiciones_izq[i-1])+abs(posiciones_der[i]-posiciones_der[i-1])+2*(anchura[i])
-                else: #no empieza un agujero, pero si termina ahí
-                    perimetro_m[int(m[i]-1)]=perimetro_m[int(m[i]-1)]+abs(posiciones_izq[i]-posiciones_izq[i-1])+abs(posiciones_der[i]-posiciones_der[i-1])+(posiciones_der[i]-posiciones_izq[i])+2*(anchura[i])
-            
-            # hago lo correspondiente para el último par de láminas
-            if m[-1]==0: #ultima lamina cerrada
-                perimetro_m[-1]=perimetro_m[-1]+(posiciones_der[-2]-posiciones_izq[-2])
-            else: #ultima lamina abierta
-                perimetro_m[-1]=perimetro_m[-1]+abs(posiciones_izq[-2]-posiciones_izq[-1])+abs(posiciones_der[-2]-posiciones_der[-1])+(posiciones_der[-1]-posiciones_izq[-1])+2*(anchura[-1])
-
-            perimetro_cp=sum(perimetro_m) #perimetro de cada cp del beam en cuestion
-            
-            
+            perimetro_cp = get_perimetro(posiciones_izq, posiciones_der, anchura)
             A_i=[] # lista donde el elemento i-ésimo es el area correspondiente al par de láminas i.
             for i in range(pares_laminas):
                 A_i.append(anchura[i]*(posiciones_der[i]-posiciones_izq[i]))
@@ -206,13 +204,13 @@ def pi(data):
         for i in range(numero_cp):
             MUij_AIij.append(AI_cp[i]*MU_cp[i])
         
-        BI=sum(MUij_AIij)/MU_beam
+        BI= sum(MUij_AIij) / beam_mu[beam.BeamNumber]
         print('Beam Irregularity:',BI)
         
         
         
-        PI_i.append(BI*MU_beam)
-    PI=sum(PI_i)/sum(beam_mu.values())
+        PI_i.append(BI * beam_mu[beam.BeamNumber])
+    PI= sum(PI_i) / sum(beam_mu.values())
 
     print('Plan Completo')
     print('Plan Irregularity:',PI)
