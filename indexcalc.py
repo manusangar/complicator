@@ -171,9 +171,8 @@ def pi(data):
         
         
         MU_cp_cumulative=[] #aquí iré metiendo el meterset cumulative para cada cp
-        AI_cp=[] #aperture irregularity de cada cp
-        
-        for cp in beam.ControlPointSequence: #calculamos para cada punto de control (apertura) en cada beam
+        AI_cp=np.zeros(numero_cp) #aperture irregularity de cada cp
+        for cp_idx, cp in enumerate(beam.ControlPointSequence): #calculamos para cada punto de control (apertura) en cada beam
             MU_cp_cumulative.append(cp.CumulativeMetersetWeight*MU_beam/beam.FinalCumulativeMetersetWeight)#cumulative meterset ya en UM para cada cp
             
             mlc_cp = getBeamLimitingDevicePosition("MLCX", cp)
@@ -182,33 +181,20 @@ def pi(data):
             posiciones_der = mlc_cp_pos[pares_laminas:] #array con las posiciones de la parte der del MLC
             
             perimetro_cp = get_perimetro(posiciones_izq, posiciones_der, anchura)
-
             A_cp = np.sum(anchura * (posiciones_der - posiciones_izq))
-          
-            AI_cp.append(perimetro_cp**2/(4*np.pi*A_cp)) # aperture irregularity del cp
+            AI_cp[cp_idx] = perimetro_cp**2 / (4 * np.pi * A_cp) # aperture irregularity del cp
             
-            
-
         #esta parte se dedica al calculo de las UM que le asigno a cada cp
-        
+        #TODO: No entiendo esta parte!!
         MU_cp=[] #vector vacio donde meteremos las MU que le asignamos a cada cp   
         MU_cp.append((MU_cp_cumulative[1]-MU_cp_cumulative[0])*0.5) #metemos la primera a mano. 
         for i in range(1,len(MU_cp_cumulative)-1):
             MU_cp.append((MU_cp_cumulative[i+1]-MU_cp_cumulative[i-1])*0.5) #expresión para las UM que le "asigno" a cada cp o apertura
         MU_cp.append((MU_cp_cumulative[-1]-MU_cp_cumulative[-2])*0.5) #la última igualmente a mano.
         
-        MUij_AIij=[] #esto seria cada elemento del sumatorio del numerador del beam irregularity
-        for i in range(numero_cp):
-            MUij_AIij.append(AI_cp[i]*MU_cp[i])
         
-        BI= sum(MUij_AIij) / beam_mu[beam.BeamNumber]
-        print('Beam Irregularity:',BI)
-        
-        
-        
+        BI= np.sum(AI_cp * np.array(MU_cp)) / beam_mu[beam.BeamNumber]
         PI_i.append(BI * beam_mu[beam.BeamNumber])
-    PI= sum(PI_i) / sum(beam_mu.values())
 
-    print('Plan Completo')
-    print('Plan Irregularity:',PI)
+    PI= sum(PI_i) / sum(beam_mu.values())
     return PI
