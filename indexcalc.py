@@ -163,7 +163,7 @@ def pi(data):
 
     for beam in data.BeamSequence:
         MU_beam = beam_mu[beam.BeamNumber] #digo cuantas MU tiene el beam con el que estamos trabajando
-        pares_laminas, fronteras_MLC, anchura = get_mlc_geometry(beam)
+        pares_laminas, _, anchura = get_mlc_geometry(beam)
             
         numero_cp=int(beam.NumberOfControlPoints) #también el número de puntos de control (puede no ser el mismo para cada beam)
         
@@ -182,12 +182,9 @@ def pi(data):
             posiciones_der = mlc_cp_pos[pares_laminas:] #array con las posiciones de la parte der del MLC
             
             perimetro_cp = get_perimetro(posiciones_izq, posiciones_der, anchura)
-            A_i=[] # lista donde el elemento i-ésimo es el area correspondiente al par de láminas i.
-            for i in range(pares_laminas):
-                A_i.append(anchura[i]*(posiciones_der[i]-posiciones_izq[i]))
-            A_cp=sum(A_i)
-            
-            
+
+            A_cp = np.sum(anchura * (posiciones_der - posiciones_izq))
+          
             AI_cp.append(perimetro_cp**2/(4*np.pi*A_cp)) # aperture irregularity del cp
             
             
