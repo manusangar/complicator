@@ -105,23 +105,25 @@ def get_perimetro(posiciones_izq, posiciones_der, anchura):
     n_hole=0 # numero de agujeros en cada cp
     m=np.zeros(pares_laminas) # el elemento i-ésimo de este vector nos da m_i, que vale 0 si el par de láminas i-ésimo está cerrado ó vale el número del agujero al que dicho par de láminas pertence
 
-    if posiciones_izq[0]==posiciones_der[0]: #primera lámina cerrada (hay que tomar el primer y último par de láminas por separado)
-        m[0]=0
-    else: #primera lámina abierta
+    leaf_closed = np.isclose(posiciones_izq, posiciones_der)
+    if leaf_closed[0]: 
+        #primera lámina cerrada (hay que tomar el primer y último par de láminas por separado)
+        m[0] = 0
+    else: 
+        #primera lámina abierta
         n_hole=1
         m[0]=n_hole
 
     for i in range(1,pares_laminas): #aqui corro desde el segundo par hasta el ultimo
-
-        if posiciones_izq[i]==posiciones_der[i]: #lamina i-ésima cerrada
+        if leaf_closed[i]:
+            #lamina i-ésima cerrada
             m[i]=0
-        elif posiciones_izq[i]!=posiciones_der[i] and posiciones_izq[i-1]==posiciones_der[i-1]: #lamina i-ésima abierta y la anterior cerrada (empieza un nuevo agujero)
+        elif leaf_closed[i-1]:
+            #lamina i-ésima abierta y la anterior cerrada (empieza un nuevo agujero)
             n_hole=n_hole+1
             m[i]=n_hole
-        elif posiciones_izq[i]!=posiciones_der[i] and posiciones_izq[i]>posiciones_der[i-1]: # la lamina actual (aun estando abierta) cierra el anterior agujero
-            n_hole=n_hole+1
-            m[i]=n_hole
-        elif posiciones_izq[i]!=posiciones_der[i] and posiciones_der[i]<posiciones_izq[i-1]: #mismo caso que el anterior 
+        elif posiciones_izq[i] > posiciones_der[i-1] or posiciones_der[i] < posiciones_izq[i-1]: 
+            # la lamina actual (aun estando abierta) cierra el anterior agujero
             n_hole=n_hole+1
             m[i]=n_hole
         else: #seguimos en el mismo agujero
