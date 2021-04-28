@@ -3,22 +3,6 @@ from typing import NamedTuple
 
 import numpy as np
 
-def mu_per_gy(data):
-    """
-    Devuelve el índice de complejidad MU/Gy para el plan especificado en data
-    """
-    MU_beam=[] # UM de cada haz del tratamiento
-    d_beam=[]  # Dosis de cada haz del tratamiento
-
-    for fraction in data.FractionGroupSequence:
-        for beam in fraction.ReferencedBeamSequence:
-            MU_beam.append(beam.BeamMeterset)
-            d_beam.append(beam.BeamDose)
-
-    #esto es justamente el ínidce de complejidad: UM totales del plan x 2Gy/dosis por fracción en Gy
-    MU_Gy = np.sum(MU_beam) * 2 / np.sum(d_beam) 
-    return MU_Gy
-
 def getBeamLimitingDevice(name:str, node):
     lista = [x for x in node.BeamLimitingDeviceSequence if x.RTBeamLimitingDeviceType == name]
     if len(lista) > 1:
@@ -34,6 +18,63 @@ def getBeamLimitingDevicePosition(name:str, node):
     elif len(lista) == 0:
         raise ValueError(f"Colimador {name} no encontrado")
     return lista[0]
+
+def get_mlc_geometry(nodo):
+    """
+    Devuelve la geometría del MLC definido en un nodo DICOM
+
+    Parameters
+    ==========
+    * nodo: DicomDataSet. El nodo con la información del MLC
+
+    Returns
+    =======
+    * numero de pares de láminas
+    * bordes de las láminas
+    * anchuras de las láminas
+    """
+    mlc = getBeamLimitingDevice("MLCX", nodo)
+    boundaries = np.array(mlc.LeafPositionBoundaries)
+    widths = boundaries[1:] - boundaries[:-1]
+    return mlc.NumberOfLeafJawPairs, boundaries, widths
+
+def get_mlc_positions(nodo):
+    """
+    Devuelve las posiciones del MLC definido en un nodo DICOM
+
+    Parameters
+    ==========
+    * nodo: DicomDataSet. El nodo con la información del MLC
+
+    Returns
+    =======
+    * posiciones de todas las láminas
+    * posiciones de las láminas de la bancada izquierda
+    * posiciones de las láminas de la bancada derecha
+    """
+    mlc = getBeamLimitingDevicePosition("MLCX", nodo)
+    mlc_pos = np.array(mlc.LeafJawPositions)
+    pares_laminas = len(mlc_pos) // 2
+    posiciones_izq = mlc_pos[:pares_laminas] #array con las posiciones de la parte izq del MLC
+    posiciones_der = mlc_pos[pares_laminas:] #array con las posiciones de la parte der del MLC
+    return mlc_pos, posiciones_izq, posiciones_der
+
+
+def mu_per_gy(data):
+    """
+    Devuelve el índice de complejidad MU/Gy para el plan especificado en data
+    """
+    MU_beam=[] # UM de cada haz del tratamiento
+    d_beam=[]  # Dosis de cada haz del tratamiento
+
+    for fraction in data.FractionGroupSequence:
+        for beam in fraction.ReferencedBeamSequence:
+            MU_beam.append(beam.BeamMeterset)
+            d_beam.append(beam.BeamDose)
+
+    #esto es justamente el ínidce de complejidad: UM totales del plan x 2Gy/dosis por fracción en Gy
+    MU_Gy = np.sum(MU_beam) * 2 / np.sum(d_beam) 
+    return MU_Gy
 
 def sas(data, umbral):
     """
@@ -51,41 +92,23 @@ def sas(data, umbral):
     numero_cp_tot = 0 #esto lo mismo pero con el numero de cp
 
     for beam in data.BeamSequence:
-        mlc_desc = getBeamLimitingDevice("MLCX", beam)
-        pares_laminas = mlc_desc.NumberOfLeafJawPairs
+        pares_laminas, _, _  = get_mlc_geometry(beam)
 
-        numero_cp = beam.NumberOfControlPoints #también el número de puntos de control (puede no ser el mismo para cada beam)
+        numero_cp_tot += beam.NumberOfControlPoints #también el número de puntos de control (puede no ser el mismo para cada beam)
         beam_open_leaves = 0 
         for cp in beam.ControlPointSequence: #calculamos para cada punto de control (apertura) en cada beam
-            mlc_pos = getBeamLimitingDevicePosition("MLCX", cp)
-            posiciones = np.array(mlc_pos.LeafJawPositions)
-            d = posiciones[pares_laminas:] - posiciones[:pares_laminas]
+            _, posiciones_izq, posiciones_dcha = get_mlc_positions(cp)
+            d = posiciones_dcha - posiciones_izq
             cp_open_leaves = np.count_nonzero(np.logical_and(d > 0, d < umbral))
             beam_open_leaves += cp_open_leaves
             #print(f"DEBUG SAS cp: {beam.BeamNumber}, {cp.ControlPointIndex}, {cp_open_leaves}")                    
         total_open_leaves += beam_open_leaves 
-        numero_cp_tot += numero_cp 
 
         #SAS = beam_open_leaves / (pares_laminas * numero_cp) * 100 
         #print(f"DEBUG SAS beam: {beam.BeamNumber}, {SAS:.2f}%")
 
     SAS_tot = 100 * total_open_leaves / (pares_laminas * numero_cp_tot)
     return SAS_tot
-
-
-def get_mlc_geometry(nodo):
-    mlc = getBeamLimitingDevice("MLCX", nodo)
-    boundaries = np.array(mlc.LeafPositionBoundaries)
-    widths = boundaries[1:] - boundaries[:-1]
-    return mlc.NumberOfLeafJawPairs, boundaries, widths
-
-def get_mlc_positions(nodo):
-    mlc = getBeamLimitingDevicePosition("MLCX", nodo)
-    mlc_pos = np.array(mlc.LeafJawPositions)
-    pares_laminas = len(mlc_pos) // 2
-    posiciones_izq = mlc_pos[:pares_laminas] #array con las posiciones de la parte izq del MLC
-    posiciones_der = mlc_pos[pares_laminas:] #array con las posiciones de la parte der del MLC
-    return mlc_pos, posiciones_izq, posiciones_der
 
 
 def get_beam_mu(data):
