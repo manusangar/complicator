@@ -1,64 +1,9 @@
 
 from typing import NamedTuple
+import collections
 
 import numpy as np
-
-def getBeamLimitingDevice(name:str, node):
-    lista = [x for x in node.BeamLimitingDeviceSequence if x.RTBeamLimitingDeviceType == name]
-    if len(lista) > 1:
-        raise ValueError(f"Se encontró más de un colimador {name} en el nodo")
-    elif len(lista) == 0:
-        raise ValueError(f"Colimador {name} no encontrado")
-    return lista[0]
-
-def getBeamLimitingDevicePosition(name:str, node):
-    lista = [x for x in node.BeamLimitingDevicePositionSequence if x.RTBeamLimitingDeviceType == name]
-    if len(lista) > 1:
-        raise ValueError(f"Se encontró más de un colimador {name} en el nodo")
-    elif len(lista) == 0:
-        raise ValueError(f"Colimador {name} no encontrado")
-    return lista[0]
-
-def get_mlc_geometry(nodo):
-    """
-    Devuelve la geometría del MLC definido en un nodo DICOM
-
-    Parameters
-    ==========
-    * nodo: DicomDataSet. El nodo con la información del MLC
-
-    Returns
-    =======
-    * numero de pares de láminas
-    * bordes de las láminas
-    * anchuras de las láminas
-    """
-    mlc = getBeamLimitingDevice("MLCX", nodo)
-    boundaries = np.array(mlc.LeafPositionBoundaries)
-    widths = boundaries[1:] - boundaries[:-1]
-    return mlc.NumberOfLeafJawPairs, boundaries, widths
-
-def get_mlc_positions(nodo):
-    """
-    Devuelve las posiciones del MLC definido en un nodo DICOM
-
-    Parameters
-    ==========
-    * nodo: DicomDataSet. El nodo con la información del MLC
-
-    Returns
-    =======
-    * posiciones de todas las láminas
-    * posiciones de las láminas de la bancada izquierda
-    * posiciones de las láminas de la bancada derecha
-    """
-    mlc = getBeamLimitingDevicePosition("MLCX", nodo)
-    mlc_pos = np.array(mlc.LeafJawPositions)
-    pares_laminas = len(mlc_pos) // 2
-    posiciones_izq = mlc_pos[:pares_laminas] #array con las posiciones de la parte izq del MLC
-    posiciones_der = mlc_pos[pares_laminas:] #array con las posiciones de la parte der del MLC
-    return mlc_pos, posiciones_izq, posiciones_der
-
+from rtplan import get_mlc_geometry, get_mlc_positions, get_beam_mu
 
 def mu_per_gy(data):
     """
@@ -111,17 +56,7 @@ def sas(data, umbral):
     return SAS_tot
 
 
-def get_beam_mu(data):
-    """
-    Devuelve un diccionario con el número de MU de cada haz
-    """
-    beam_mu = {}
-    for fraction in data.FractionGroupSequence:
-        for reference in fraction.ReferencedBeamSequence:
-            beam_mu[reference.ReferencedBeamNumber] = reference.BeamMeterset
-    return beam_mu
-
-def get_perimetro(posiciones_izq, posiciones_der, anchura):
+def get_perimetro_orig(posiciones_izq, posiciones_der, anchura):
     # para el calculo del permitro de cada abertura hago dos pasos: primero asigno a cada par de laminas un índice m que es igual a 0
     # si ellas no pertenecen a ningún agujero. Por el contrario les asigno el número del agujero al que pertenecen.  
     pares_laminas = len(posiciones_izq)
@@ -186,6 +121,56 @@ def get_perimetro(posiciones_izq, posiciones_der, anchura):
         perimetro_m[-1]=perimetro_m[-1]+abs(posiciones_izq[-2]-posiciones_izq[-1])+abs(posiciones_der[-2]-posiciones_der[-1])+(posiciones_der[-1]-posiciones_izq[-1])+2*(anchura[-1])
 
     perimetro_cp=sum(perimetro_m) #perimetro de cada cp del beam en cuestion
+    return perimetro_cp
+
+class MLCHole:
+    def __init__(self, first_leaf, last_leaf):
+        self.first_leaf = first_leaf
+        self.last_leaf = last_leaf
+
+
+def find_holes(posiciones_izq, posiciones_der):
+    holes = []
+    current_hole = None
+    leaf_closed = np.isclose(posiciones_izq, posiciones_der)
+
+    for i in range(len(posiciones_izq)): #aqui corro desde el segundo par hasta el ultimo
+        if leaf_closed[i]:
+            #Agujero cerrado
+            current_hole = None
+        else:
+            if current_hole is None or posiciones_izq[i] > posiciones_der[i-1] or posiciones_der[i] < posiciones_izq[i-1]:
+                #Empieza un nuevo agujero porque el anterior estaba cerrado o porque
+                #las láminas cierran el anterior a la vez que abren el nuevo
+                current_hole = MLCHole(i,i)
+                holes.append(current_hole)
+            else:
+                current_hole.last_leaf = i
+    return holes
+
+
+def get_perimetro(posiciones_izq, posiciones_der, anchura):
+    # para el calculo del permitro de cada abertura hago dos pasos: primero asigno a cada par de laminas un índice m que es igual a 0
+    # si ellas no pertenecen a ningún agujero. Por el contrario les asigno el número del agujero al que pertenecen.  
+    pares_laminas = len(posiciones_izq)
+
+    holes = find_holes(posiciones_izq, posiciones_der)
+
+    perimetro_cp = 0
+    for hole in holes:
+        #Borde superior
+        hole_perimeter = posiciones_der[hole.first_leaf] - posiciones_izq[hole.first_leaf]
+
+        for leaf in range(hole.first_leaf + 1, hole.last_leaf - 1):
+            hole_perimeter += abs(posiciones_izq[leaf] - posiciones_izq[leaf - 1]) + \
+                              abs(posiciones_der[leaf] - posiciones_der[leaf - 1])
+
+        #Borde inferior
+        hole_perimeter += posiciones_der[hole.last_leaf] - posiciones_izq[hole.last_leaf]
+        hole_perimeter += 2 * np.sum(anchura[hole.first_leaf:hole.last_leaf + 1])
+
+        perimetro_cp += hole_perimeter
+
     return perimetro_cp
 
 
