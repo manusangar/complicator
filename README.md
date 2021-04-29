@@ -6,7 +6,7 @@ Para procesar en línea de comandos un fichero RTPlan y obtener los índices de 
 hay que hacer
 
 ```
-python cli.py fichero_entrada`
+python cli.py fichero_entrada
 ```
 
 Si además queremos que el programa genere un fichero debug.txt con información para verificar 
