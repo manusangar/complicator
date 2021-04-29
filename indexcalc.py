@@ -1,11 +1,13 @@
 
-from typing import NamedTuple
+from typing import Tuple, List
 import collections
 
 import numpy as np
+from pydicom.dataset import DataSet
+
 from rtplan import get_mlc_geometry, get_mlc_positions, get_beam_mu
 
-def mu_per_gy(data):
+def mu_per_gy(data:DataSet) -> float:
     """
     Devuelve el índice de complejidad MU/Gy para el plan especificado en data
     """
@@ -21,15 +23,17 @@ def mu_per_gy(data):
     MU_Gy = np.sum(MU_beam) * 2 / np.sum(d_beam) 
     return MU_Gy
 
-def sas(data, umbral):
+def sas(data:DataSet, umbral:float) -> float:
     """
     Calcula el índice SAS de complejidad
 
     El SAS se define como la proporcion de pares de láminas abiertas menos
     de un cierto umbral con respecto al número de láminas total
 
-    Parameters
+    Parámetros
     ==========
+    * data: DicomDataSet
+        El objeto DICOM con el plan a evaluar
     * umbral:float
         El umbral por debajo del cual consideramos que un par de láminas están poco abiertas (en mm)
     """
@@ -56,80 +60,32 @@ def sas(data, umbral):
     return SAS_tot
 
 
-def get_perimetro_orig(posiciones_izq, posiciones_der, anchura):
-    # para el calculo del permitro de cada abertura hago dos pasos: primero asigno a cada par de laminas un índice m que es igual a 0
-    # si ellas no pertenecen a ningún agujero. Por el contrario les asigno el número del agujero al que pertenecen.  
-    pares_laminas = len(posiciones_izq)
-    n_hole=0 # numero de agujeros en cada cp
-    m=np.zeros(pares_laminas) # el elemento i-ésimo de este vector nos da m_i, que vale 0 si el par de láminas i-ésimo está cerrado ó vale el número del agujero al que dicho par de láminas pertence
-
-    leaf_closed = np.isclose(posiciones_izq, posiciones_der)
-    if leaf_closed[0]: 
-        #primera lámina cerrada (hay que tomar el primer y último par de láminas por separado)
-        m[0] = 0
-    else: 
-        #primera lámina abierta
-        n_hole=1
-        m[0]=n_hole
-
-    for i in range(1,pares_laminas): #aqui corro desde el segundo par hasta el ultimo
-        if leaf_closed[i]:
-            #lamina i-ésima cerrada
-            m[i]=0
-        elif leaf_closed[i-1]:
-            #lamina i-ésima abierta y la anterior cerrada (empieza un nuevo agujero)
-            n_hole=n_hole+1
-            m[i]=n_hole
-        elif posiciones_izq[i] > posiciones_der[i-1] or posiciones_der[i] < posiciones_izq[i-1]: 
-            # la lamina actual (aun estando abierta) cierra el anterior agujero
-            n_hole=n_hole+1
-            m[i]=n_hole
-        else: #seguimos en el mismo agujero
-            m[i]=n_hole
-
-    #Llegados a este punto ya tenemos, para cada cp, el índice de cada par de láminas.
-    #vamos con el perimetro
-    
-    perimetro_cp=0 #perimetro total del cp (suma de los perimetros de cada agujero)
-    perimetro_m=np.zeros(n_hole) #array donde cada elemento es el periemtro de cada uno de los agujeros en el cp
-    
-    if m[0]==0: #perimera lamina cerrada (m=0)
-        pass
-    elif m[1]!=m[0]: #la primera lamina es distinta que la segunda. Empieza y acaba un aguejro
-        perimetro_m[0]=perimetro_m[0]+2*(posiciones_der[0]-posiciones_izq[0])+2*(anchura[0])
-
-    else: #la primera es igual a la segunda. Empieza un agujero y sigue
-        perimetro_m[0]=perimetro_m[0]+(posiciones_der[0]-posiciones_izq[0])+2*(anchura[0])
-
-    for i in range(1,pares_laminas-1): #calculamos desde la segunda a la penultima
-
-        if m[i]==0: #primera lamina cerrada
-            pass
-        elif m[i-1]!=m[i] and m[i+1]==m[i]: #empieza un nuevo agujero y sigue
-            perimetro_m[int(m[i]-1)]=perimetro_m[int(m[i]-1)]+(posiciones_der[i]-posiciones_izq[i])+2*(anchura[i])
-        elif m[i-1]!=m[i] and m[i+1]!=m[i]: #empieza un nuevo agujero y termina ahí
-            perimetro_m[int(m[i]-1)]=perimetro_m[int(m[i]-1)]+2*(posiciones_der[i]-posiciones_izq[i])+2*(anchura[i])
-        elif m[i+1]==m[i]: #no empieza agujera (seguimos en el mismo que el anterior) y tampoco acaba
-            perimetro_m[int(m[i]-1)]=perimetro_m[int(m[i]-1)]+abs(posiciones_izq[i]-posiciones_izq[i-1])+abs(posiciones_der[i]-posiciones_der[i-1])+2*(anchura[i])
-        else: #no empieza un agujero, pero si termina ahí
-            perimetro_m[int(m[i]-1)]=perimetro_m[int(m[i]-1)]+abs(posiciones_izq[i]-posiciones_izq[i-1])+abs(posiciones_der[i]-posiciones_der[i-1])+(posiciones_der[i]-posiciones_izq[i])+2*(anchura[i])
-    
-    # hago lo correspondiente para el último par de láminas
-    if m[-1]==0: #ultima lamina cerrada
-        perimetro_m[-1]=perimetro_m[-1]+(posiciones_der[-2]-posiciones_izq[-2])
-    else: #ultima lamina abierta
-        perimetro_m[-1]=perimetro_m[-1]+abs(posiciones_izq[-2]-posiciones_izq[-1])+abs(posiciones_der[-2]-posiciones_der[-1])+(posiciones_der[-1]-posiciones_izq[-1])+2*(anchura[-1])
-
-    perimetro_cp=sum(perimetro_m) #perimetro de cada cp del beam en cuestion
-    return perimetro_cp
-
 class MLCHole:
+    """
+    Describe un agujero en el MLC identificado como un par de
+    número de láminas, correspondientes a la primera y última
+    abiertas
+    """
     def __init__(self, first_leaf, last_leaf):
         self.first_leaf = first_leaf
         self.last_leaf = last_leaf
 
 
-def find_holes(posiciones_izq, posiciones_der):
+def find_holes(posiciones_izq:np.ndarray, posiciones_der:np.ndarray) -> List[MLCHole]:
+    """
+    Busca los agujeros en una conformación del MLC
+
+    Parámetros
+    ==========
+    * posiciones_izq: array
+        Array con las posiciones de las láminas de la bancada izquierda
+    * posiciones_dcha: array
+        Array con las posiciones de las láminas de la bancada derecha
+
+    Returns
+    =======
+    Array de objetos MLCHole con los agujeros del MLC
+    """
     holes = []
     current_hole = None
     leaf_closed = np.isclose(posiciones_izq, posiciones_der)
@@ -149,7 +105,23 @@ def find_holes(posiciones_izq, posiciones_der):
     return holes
 
 
-def get_perimetro(posiciones_izq, posiciones_der, anchura):
+def get_perimetro(posiciones_izq:np.ndarray, posiciones_der:np.ndarray, anchura:np.ndarray) -> float:
+    """
+    Calcula el perímetro de las aperturas en una conformación del MLC
+
+    Parámetros
+    ==========
+    * posiciones_izq: array
+        Array con las posiciones de las láminas de la bancada izquierda
+    * posiciones_dcha: array
+        Array con las posiciones de las láminas de la bancada derecha
+    * anchura: array
+        Array con las anchuras de las láminas del MLC
+
+    Returns
+    =======
+    Suma de los perímetros de los agujeros del MLC
+    """
     # para el calculo del permitro de cada abertura hago dos pasos: primero asigno a cada par de laminas un índice m que es igual a 0
     # si ellas no pertenecen a ningún agujero. Por el contrario les asigno el número del agujero al que pertenecen.  
     pares_laminas = len(posiciones_izq)
@@ -161,7 +133,7 @@ def get_perimetro(posiciones_izq, posiciones_der, anchura):
         #Borde superior
         hole_perimeter = posiciones_der[hole.first_leaf] - posiciones_izq[hole.first_leaf]
 
-        for leaf in range(hole.first_leaf + 1, hole.last_leaf - 1):
+        for leaf in range(hole.first_leaf + 1, hole.last_leaf + 1):
             hole_perimeter += abs(posiciones_izq[leaf] - posiciones_izq[leaf - 1]) + \
                               abs(posiciones_der[leaf] - posiciones_der[leaf - 1])
 
@@ -174,7 +146,15 @@ def get_perimetro(posiciones_izq, posiciones_der, anchura):
     return perimetro_cp
 
 
-def pi(data):
+def pi(data:DataSet) -> float:
+    """
+    Calcula el índice de complejidad PI para un plan de VMAT/IMR
+
+    Parámetros
+    ==========
+    * data: DicomDataSet
+        El plan de tratamiento en formato DICOM
+    """
     beam_mu = get_beam_mu(data)
             
     PI_i = [] #esto es seria cada elemento del numerador del plan irregularity

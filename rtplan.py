@@ -1,6 +1,11 @@
 import numpy as np
+from pydicom.dataset import DataSet
+from typing import Tuple, Dict
 
-def getBeamLimitingDevice(name:str, node):
+def getBeamLimitingDevice(name:str, node:DataSet) -> DataSet:
+    """
+    Busca un colimador de tipo 'name' en el nodo DICOM especificado 
+    """
     lista = [x for x in node.BeamLimitingDeviceSequence if x.RTBeamLimitingDeviceType == name]
     if len(lista) > 1:
         raise ValueError(f"Se encontró más de un colimador {name} en el nodo")
@@ -8,7 +13,10 @@ def getBeamLimitingDevice(name:str, node):
         raise ValueError(f"Colimador {name} no encontrado")
     return lista[0]
 
-def getBeamLimitingDevicePosition(name:str, node):
+def getBeamLimitingDevicePosition(name:str, node:DataSet) -> DataSet:
+    """
+    Busca un posicionamiento de colimador de tipo 'name' en el nodo DICOM especificado 
+    """
     lista = [x for x in node.BeamLimitingDevicePositionSequence if x.RTBeamLimitingDeviceType == name]
     if len(lista) > 1:
         raise ValueError(f"Se encontró más de un colimador {name} en el nodo")
@@ -16,13 +24,14 @@ def getBeamLimitingDevicePosition(name:str, node):
         raise ValueError(f"Colimador {name} no encontrado")
     return lista[0]
 
-def get_mlc_geometry(nodo):
+def get_mlc_geometry(nodo) -> Tuple[int, np.ndarray, np.ndarray]:
     """
     Devuelve la geometría del MLC definido en un nodo DICOM
 
-    Parameters
+    Parámetros
     ==========
-    * nodo: DicomDataSet. El nodo con la información del MLC
+    * nodo: DicomDataSet 
+        El nodo con la información del MLC
 
     Returns
     =======
@@ -35,19 +44,20 @@ def get_mlc_geometry(nodo):
     widths = boundaries[1:] - boundaries[:-1]
     return mlc.NumberOfLeafJawPairs, boundaries, widths
 
-def get_mlc_positions(nodo):
+def get_mlc_positions(nodo:DataSet) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Devuelve las posiciones del MLC definido en un nodo DICOM
 
-    Parameters
+    Parámetros
     ==========
-    * nodo: DicomDataSet. El nodo con la información del MLC
+    * nodo: DicomDataSet
+        El nodo con la información del MLC
 
     Returns
     =======
-    * posiciones de todas las láminas
-    * posiciones de las láminas de la bancada izquierda
-    * posiciones de las láminas de la bancada derecha
+    * posiciones de todas las láminas: array
+    * posiciones de las láminas de la bancada izquierda: array
+    * posiciones de las láminas de la bancada derecha: array
     """
     mlc = getBeamLimitingDevicePosition("MLCX", nodo)
     mlc_pos = np.array(mlc.LeafJawPositions)
@@ -57,7 +67,7 @@ def get_mlc_positions(nodo):
     return mlc_pos, posiciones_izq, posiciones_der
 
 
-def get_beam_mu(data):
+def get_beam_mu(data:DataSet) -> Dict[int, float]:
     """
     Devuelve un diccionario con el número de MU de cada haz
     """
