@@ -1,8 +1,8 @@
 import numpy as np
-from pydicom.dataset import DataSet
+from pydicom.dataset import Dataset
 from typing import Tuple, Dict
 
-def getBeamLimitingDevice(name:str, node:DataSet) -> DataSet:
+def getBeamLimitingDevice(name:str, node:Dataset) -> Dataset:
     """
     Busca un colimador de tipo 'name' en el nodo DICOM especificado 
     """
@@ -13,7 +13,7 @@ def getBeamLimitingDevice(name:str, node:DataSet) -> DataSet:
         raise ValueError(f"Colimador {name} no encontrado")
     return lista[0]
 
-def getBeamLimitingDevicePosition(name:str, node:DataSet) -> DataSet:
+def getBeamLimitingDevicePosition(name:str, node:Dataset) -> Dataset:
     """
     Busca un posicionamiento de colimador de tipo 'name' en el nodo DICOM especificado 
     """
@@ -44,7 +44,7 @@ def get_mlc_geometry(nodo) -> Tuple[int, np.ndarray, np.ndarray]:
     widths = boundaries[1:] - boundaries[:-1]
     return mlc.NumberOfLeafJawPairs, boundaries, widths
 
-def get_mlc_positions(nodo:DataSet) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def get_mlc_positions(nodo:Dataset) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Devuelve las posiciones del MLC definido en un nodo DICOM
 
@@ -67,7 +67,7 @@ def get_mlc_positions(nodo:DataSet) -> Tuple[np.ndarray, np.ndarray, np.ndarray]
     return mlc_pos, posiciones_izq, posiciones_der
 
 
-def get_beam_mu(data:DataSet) -> Dict[int, float]:
+def get_beam_mu(data:Dataset) -> Dict[int, float]:
     """
     Devuelve un diccionario con el número de MU de cada haz
     """

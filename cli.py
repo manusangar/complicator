@@ -1,8 +1,11 @@
 import pydicom
 import sys
+import logging
 
 import indexcalc
 
+#logging.basicConfig(level=logging.DEBUG, filename="debug.txt", filemode="w")
+logging.basicConfig(level=logging.ERROR)
 
 fname = sys.argv[1]
 data = pydicom.read_file(fname, force=True)

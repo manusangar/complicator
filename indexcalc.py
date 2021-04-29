@@ -1,13 +1,14 @@
 
 from typing import Tuple, List
 import collections
+import logging
 
 import numpy as np
-from pydicom.dataset import DataSet
+from pydicom.dataset import Dataset
 
 from rtplan import get_mlc_geometry, get_mlc_positions, get_beam_mu
 
-def mu_per_gy(data:DataSet) -> float:
+def mu_per_gy(data:Dataset) -> float:
     """
     Devuelve el índice de complejidad MU/Gy para el plan especificado en data
     """
@@ -23,7 +24,7 @@ def mu_per_gy(data:DataSet) -> float:
     MU_Gy = np.sum(MU_beam) * 2 / np.sum(d_beam) 
     return MU_Gy
 
-def sas(data:DataSet, umbral:float) -> float:
+def sas(data:Dataset, umbral:float) -> float:
     """
     Calcula el índice SAS de complejidad
 
@@ -32,7 +33,7 @@ def sas(data:DataSet, umbral:float) -> float:
 
     Parámetros
     ==========
-    * data: DicomDataSet
+    * data: DicomDataset
         El objeto DICOM con el plan a evaluar
     * umbral:float
         El umbral por debajo del cual consideramos que un par de láminas están poco abiertas (en mm)
@@ -146,13 +147,13 @@ def get_perimetro(posiciones_izq:np.ndarray, posiciones_der:np.ndarray, anchura:
     return perimetro_cp
 
 
-def pi(data:DataSet) -> float:
+def pi(data:Dataset) -> float:
     """
     Calcula el índice de complejidad PI para un plan de VMAT/IMR
 
     Parámetros
     ==========
-    * data: DicomDataSet
+    * data: DicomDataset
         El plan de tratamiento en formato DICOM
     """
     beam_mu = get_beam_mu(data)
@@ -160,6 +161,7 @@ def pi(data:DataSet) -> float:
     PI_i = [] #esto es seria cada elemento del numerador del plan irregularity
 
     for beam in data.BeamSequence:
+        logging.debug("PI beam start %d", beam.BeamNumber)
         MU_beam = beam_mu[beam.BeamNumber] #digo cuantas MU tiene el beam con el que estamos trabajando
         _, _, anchuras = get_mlc_geometry(beam)
             
@@ -169,6 +171,7 @@ def pi(data:DataSet) -> float:
             
         cp_cumulative_weight = np.zeros(numero_cp)
         AI_cp = np.zeros(numero_cp) #aperture irregularity de cada cp
+        logging.debug("PI cp, beam, cp, perimetro, apertura, irregularidad")
         for cp_idx, cp in enumerate(beam.ControlPointSequence): #calculamos para cada punto de control (apertura) en cada beam
             cp_cumulative_weight[cp_idx] = cp.CumulativeMetersetWeight
             
@@ -177,6 +180,7 @@ def pi(data:DataSet) -> float:
             perimetro_cp = get_perimetro(posiciones_izq, posiciones_der, anchuras)
             A_cp = np.sum(anchuras * (posiciones_der - posiciones_izq))
             AI_cp[cp_idx] = perimetro_cp**2 / (4 * np.pi * A_cp) # aperture irregularity del cp
+            logging.debug("PI cp, %d, %d, %.2f, %.2f, %.2f", beam.BeamNumber, cp_idx, perimetro_cp, A_cp, AI_cp[cp_idx])
             
         #esta parte se dedica al calculo de las UM que le asigno a cada cp
         MU_cp_cumulative = MU_beam * cp_cumulative_weight / beam.FinalCumulativeMetersetWeight
@@ -184,6 +188,7 @@ def pi(data:DataSet) -> float:
         
         BI= np.sum(AI_cp * np.array(MU_cp)) / MU_beam
         PI_i.append(BI * MU_beam)
+        logging.debug("PI beam, %d, MU = %.2f, BI = %.2f", beam.BeamNumber, MU_beam, BI)
 
     PI= sum(PI_i) / sum(beam_mu.values())
     return PI
