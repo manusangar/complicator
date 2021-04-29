@@ -45,17 +45,18 @@ def sas(data:Dataset, umbral:float) -> float:
         pares_laminas, _, _  = get_mlc_geometry(beam)
 
         numero_cp_tot += beam.NumberOfControlPoints #también el número de puntos de control (puede no ser el mismo para cada beam)
-        beam_open_leaves = 0 
+        beam_open_leaves = 0
+        logging.debug("SAS beam %d, beam, cp, open_leaves", beam.BeamNumber) 
         for cp in beam.ControlPointSequence: #calculamos para cada punto de control (apertura) en cada beam
             _, posiciones_izq, posiciones_dcha = get_mlc_positions(cp)
             d = posiciones_dcha - posiciones_izq
             cp_open_leaves = np.count_nonzero(np.logical_and(d > 0, d < umbral))
             beam_open_leaves += cp_open_leaves
-            #print(f"DEBUG SAS cp: {beam.BeamNumber}, {cp.ControlPointIndex}, {cp_open_leaves}")                    
+            logging.debug(f"SAS cp, %d, %d, %d",beam.BeamNumber, cp.ControlPointIndex, cp_open_leaves)                    
         total_open_leaves += beam_open_leaves 
-
-        #SAS = beam_open_leaves / (pares_laminas * numero_cp) * 100 
-        #print(f"DEBUG SAS beam: {beam.BeamNumber}, {SAS:.2f}%")
+ 
+        logging.debug(f"SAS beam: %d %.2f", beam.BeamNumber, 
+                                            beam_open_leaves / (pares_laminas * beam.NumberOfControlPoints) * 100)
 
     SAS_tot = 100 * total_open_leaves / (pares_laminas * numero_cp_tot)
     return SAS_tot
@@ -166,8 +167,6 @@ def pi(data:Dataset) -> float:
         _, _, anchuras = get_mlc_geometry(beam)
             
         numero_cp=int(beam.NumberOfControlPoints) #también el número de puntos de control (puede no ser el mismo para cada beam)
-        
-        print(beam.BeamName, beam.BeamNumber ,beam_mu[beam.BeamNumber]) #solo comprobacion para ver que todo marcha bien
             
         cp_cumulative_weight = np.zeros(numero_cp)
         AI_cp = np.zeros(numero_cp) #aperture irregularity de cada cp
