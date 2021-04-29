@@ -1,4 +1,4 @@
-# complicator
+# COMPlexity Index calculaTOR
 Calculadora de indices de complejidad para tratamientos VMAT e IMRT
 
 ## Interfaz en línea de comandos
