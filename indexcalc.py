@@ -36,13 +36,11 @@ def sas(plan:RTPlan, umbral:float) -> float:
     numero_cp_tot = 0 #esto lo mismo pero con el numero de cp
 
     for beam_id, beam in plan.beams.items():
-        #pares_laminas, _, _  = get_mlc_geometry(beam)
 
         numero_cp_tot += beam.number_of_segments #también el número de puntos de control (puede no ser el mismo para cada beam)
         beam_open_leaves = 0
         logging.debug("SAS beam %d, beam, cp, open_leaves", beam_id) 
         for idx, segment in enumerate(beam.segments): #calculamos para cada punto de control (apertura) en cada beam
-            #_, posiciones_izq, posiciones_dcha = get_mlc_positions(cp)
             d = segment.mlc_right - segment.mlc_left
             cp_open_leaves = np.count_nonzero(np.logical_and(d > 0, d < umbral))
             beam_open_leaves += cp_open_leaves
