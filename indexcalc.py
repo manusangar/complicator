@@ -6,25 +6,19 @@ import logging
 import numpy as np
 from pydicom.dataset import Dataset
 
+from rtplan import RTPlan
 from rtplan import get_mlc_geometry, get_mlc_positions, get_beam_mu
 
-def mu_per_gy(data:Dataset) -> float:
+def mu_per_gy(plan:RTPlan) -> float:
     """
     Devuelve el índice de complejidad MU/Gy para el plan especificado en data
     """
-    MU_beam=[] # UM de cada haz del tratamiento
-    d_beam=[]  # Dosis de cada haz del tratamiento
-
-    for fraction in data.FractionGroupSequence:
-        for beam in fraction.ReferencedBeamSequence:
-            MU_beam.append(beam.BeamMeterset)
-            d_beam.append(beam.BeamDose)
-
-    #esto es justamente el ínidce de complejidad: UM totales del plan x 2Gy/dosis por fracción en Gy
-    MU_Gy = np.sum(MU_beam) * 2 / np.sum(d_beam) 
+    total_mu = sum([beam.mu for beam in plan.beams.values()])
+    total_dose = sum([beam.dose for beam in plan.beams.values()])
+    MU_Gy = total_mu  * 2 / total_dose
     return MU_Gy
 
-def sas(data:Dataset, umbral:float) -> float:
+def sas(plan:RTPlan, umbral:float) -> float:
     """
     Calcula el índice SAS de complejidad
 
@@ -33,32 +27,32 @@ def sas(data:Dataset, umbral:float) -> float:
 
     Parámetros
     ==========
-    * data: DicomDataset
-        El objeto DICOM con el plan a evaluar
+    * plan: RTPlan
+        El plan a evaluar
     * umbral:float
         El umbral por debajo del cual consideramos que un par de láminas están poco abiertas (en mm)
     """
     total_open_leaves = 0 #esto me sirve para contar el numero de pares de laminas abiertas en total (contando todos los haces)
     numero_cp_tot = 0 #esto lo mismo pero con el numero de cp
 
-    for beam in data.BeamSequence:
-        pares_laminas, _, _  = get_mlc_geometry(beam)
+    for beam_id, beam in plan.beams.items():
+        #pares_laminas, _, _  = get_mlc_geometry(beam)
 
-        numero_cp_tot += beam.NumberOfControlPoints #también el número de puntos de control (puede no ser el mismo para cada beam)
+        numero_cp_tot += beam.number_of_segments #también el número de puntos de control (puede no ser el mismo para cada beam)
         beam_open_leaves = 0
-        logging.debug("SAS beam %d, beam, cp, open_leaves", beam.BeamNumber) 
-        for cp in beam.ControlPointSequence: #calculamos para cada punto de control (apertura) en cada beam
-            _, posiciones_izq, posiciones_dcha = get_mlc_positions(cp)
-            d = posiciones_dcha - posiciones_izq
+        logging.debug("SAS beam %d, beam, cp, open_leaves", beam_id) 
+        for idx, segment in enumerate(beam.segments): #calculamos para cada punto de control (apertura) en cada beam
+            #_, posiciones_izq, posiciones_dcha = get_mlc_positions(cp)
+            d = segment.mlc_right - segment.mlc_left
             cp_open_leaves = np.count_nonzero(np.logical_and(d > 0, d < umbral))
             beam_open_leaves += cp_open_leaves
-            logging.debug(f"SAS cp, %d, %d, %d",beam.BeamNumber, cp.ControlPointIndex, cp_open_leaves)                    
+            logging.debug(f"SAS cp, %d, %d, %d",beam_id, idx, cp_open_leaves)                    
         total_open_leaves += beam_open_leaves 
  
-        logging.debug(f"SAS beam: %d %.2f", beam.BeamNumber, 
-                                            beam_open_leaves / (pares_laminas * beam.NumberOfControlPoints) * 100)
+        logging.debug(f"SAS beam: %d %.2f", beam_id, 
+                                            beam_open_leaves / (beam.mlc_geometry.leaf_number * beam.number_of_segments) * 100)
 
-    SAS_tot = 100 * total_open_leaves / (pares_laminas * numero_cp_tot)
+    SAS_tot = 100 * total_open_leaves / (beam.mlc_geometry.leaf_number * numero_cp_tot)
     return SAS_tot
 
 
@@ -148,7 +142,7 @@ def get_perimetro(posiciones_izq:np.ndarray, posiciones_der:np.ndarray, anchura:
     return perimetro_cp
 
 
-def pi(data:Dataset) -> float:
+def pi(plan:RTPlan) -> float:
     """
     Calcula el índice de complejidad PI para un plan de VMAT/IMR
 
@@ -156,38 +150,51 @@ def pi(data:Dataset) -> float:
     ==========
     * data: DicomDataset
         El plan de tratamiento en formato DICOM
-    """
-    beam_mu = get_beam_mu(data)
-            
+    """            
     PI_i = [] #esto es seria cada elemento del numerador del plan irregularity
 
-    for beam in data.BeamSequence:
-        logging.debug("PI beam start %d", beam.BeamNumber)
-        MU_beam = beam_mu[beam.BeamNumber] #digo cuantas MU tiene el beam con el que estamos trabajando
-        _, _, anchuras = get_mlc_geometry(beam)
-            
-        numero_cp=int(beam.NumberOfControlPoints) #también el número de puntos de control (puede no ser el mismo para cada beam)
-            
-        cp_cumulative_weight = np.zeros(numero_cp)
-        AI_cp = np.zeros(numero_cp) #aperture irregularity de cada cp
+    total_mu = 0
+    for beam_id, beam in plan.beams.items():
+        total_mu += beam.mu
+        logging.debug("PI beam start %d", beam_id)
+       
+        AI_cp = np.zeros(beam.number_of_segments) #aperture irregularity de cada cp
+        BI_cp = np.zeros(beam.number_of_segments) #aperture irregularity de cada cp
         logging.debug("PI cp, beam, cp, perimetro, apertura, irregularidad")
-        for cp_idx, cp in enumerate(beam.ControlPointSequence): #calculamos para cada punto de control (apertura) en cada beam
-            cp_cumulative_weight[cp_idx] = cp.CumulativeMetersetWeight
-            
-            _, posiciones_izq, posiciones_der = get_mlc_positions(cp)
-            
-            perimetro_cp = get_perimetro(posiciones_izq, posiciones_der, anchuras)
-            A_cp = np.sum(anchuras * (posiciones_der - posiciones_izq))
+        for cp_idx, segment in enumerate(beam.segments): #calculamos para cada punto de control (apertura) en cada beam
+            perimetro_cp = get_perimetro(segment.mlc_left, segment.mlc_right, beam.mlc_geometry.leaf_widths)
+            A_cp = np.sum(beam.mlc_geometry.leaf_widths * (segment.mlc_right - segment.mlc_left))
             AI_cp[cp_idx] = perimetro_cp**2 / (4 * np.pi * A_cp) # aperture irregularity del cp
-            logging.debug("PI cp, %d, %d, %.2f, %.2f, %.2f", beam.BeamNumber, cp_idx, perimetro_cp, A_cp, AI_cp[cp_idx])
-            
-        #esta parte se dedica al calculo de las UM que le asigno a cada cp
-        MU_cp_cumulative = MU_beam * cp_cumulative_weight / beam.FinalCumulativeMetersetWeight
-        MU_cp = (np.diff(MU_cp_cumulative, append=MU_beam) + np.diff(MU_cp_cumulative, prepend=0)) / 2.0
+            BI_cp[cp_idx] = (AI_cp[cp_idx] * segment.mu)
+            logging.debug("PI cp, %d, %d, %.2f, %.2f, %.2f", beam_id, cp_idx, perimetro_cp, A_cp, AI_cp[cp_idx])
         
-        BI= np.sum(AI_cp * np.array(MU_cp)) / MU_beam
-        PI_i.append(BI * MU_beam)
-        logging.debug("PI beam, %d, MU = %.2f, BI = %.2f", beam.BeamNumber, MU_beam, BI)
+        BI = np.sum(BI_cp) / beam.mu
+        PI_i.append(BI * beam.mu)
+        logging.debug("PI beam, %d, MU = %.2f, BI = %.2f", beam_id, beam.mu, BI)
 
-    PI= sum(PI_i) / sum(beam_mu.values())
+    PI= sum(PI_i) / total_mu
     return PI
+
+
+def tgi(plan:RTPlan) -> float:
+    "Calcula el indice Tongue and Groove"
+
+    total_mu = sum([beam.mu for beam in plan.beams.values()])
+    mean_gap = 0
+    mean_tgi = 0
+    for beam_id, beam in plan.beams.items():
+        for segment in beam.segments:
+            
+            gap = segment.mlc_right - segment.mlc_left
+            overlap = (segment.mlc_left[1:] - segment.mlc_left[:-1]) + (segment.mlc_right[1:] - segment.mlc_right[:-1])
+
+            tgi = np.zeros(len(overlap))
+            open_leafs = np.logical_not(np.isclose(segment.mlc_right, segment.mlc_left))[1:]
+            tgi_gap = gap[1:]
+            tgi[open_leafs] = np.minimum(np.abs(overlap[open_leafs]) / tgi_gap[open_leafs], 1.0)
+            mean_tgi += np.mean(tgi) * segment.mu 
+            mean_gap += np.mean(gap) * segment.mu
+            logging.debug("TGI %f, %f", mean_tgi, mean_gap)
+    mean_gap /= total_mu
+    mean_tgi /= total_mu
+    return mean_gap, mean_tgi
