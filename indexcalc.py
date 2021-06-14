@@ -184,12 +184,12 @@ def tgi(plan:RTPlan) -> float:
         for segment in beam.segments:
             
             gap = segment.mlc_right - segment.mlc_left
-            overlap = (segment.mlc_left[1:] - segment.mlc_left[:-1]) + (segment.mlc_right[1:] - segment.mlc_right[:-1])
+            overlap = np.abs(segment.mlc_left[1:] - segment.mlc_left[:-1]) + np.abs(segment.mlc_right[1:] - segment.mlc_right[:-1])
 
             tgi = np.zeros(len(overlap))
             open_leafs = np.logical_not(np.isclose(segment.mlc_right, segment.mlc_left))[1:]
             tgi_gap = gap[1:]
-            tgi[open_leafs] = np.minimum(np.abs(overlap[open_leafs]) / tgi_gap[open_leafs], 1.0)
+            tgi[open_leafs] = np.minimum(overlap[open_leafs] / tgi_gap[open_leafs], 1.0)
             mean_tgi += np.mean(tgi) * segment.mu 
             mean_gap += np.mean(gap) * segment.mu
             logging.debug("TGI %f, %f", mean_tgi, mean_gap)
