@@ -1,3 +1,11 @@
+# Copyright (C) 2021 Iago Mosquera Cereijo - All Rights Reserved
+# You may use, distribute and modify this code under the
+# terms of the GPLv3 license.
+#
+# You should have received a copy of the GPLv3 license with
+# this file. If not, please visit https://www.gnu.org/licenses/gpl-3.0.html:
+#
+
 import numpy as np
 from pydicom.dataset import Dataset
 from typing import Tuple, Dict
